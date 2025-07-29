@@ -1,0 +1,112 @@
+---
+- name: Setup Node.js, Apache, vHost, Directory Structure, SSL and index.html
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install curl
+      apt:
+        name: curl
+        state: present
+
+    - name: Add NodeSource repo for Node.js 22
+      shell: curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+      args:
+        executable: /bin/bash
+
+    - name: Install Node.js (includes npm)
+      apt:
+        name: nodejs
+        state: present
+
+    - name: Install Apache2
+      apt:
+        name: apache2
+        state: present
+
+    - name: Install Certbot and Apache plugin
+      apt:
+        name:
+          - certbot
+          - python3-certbot-apache
+        state: present
+
+    - name: Create base web directory
+      file:
+        path: /var/www/pro.stage.webinsights.info
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+
+    - name: Create versioned directory 0.0.0
+      file:
+        path: /var/www/pro.stage.webinsights.info/0.0.0
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+
+    - name: Create symlink "current" to 0.0.0
+      file:
+        src: /var/www/pro.stage.webinsights.info/0.0.0
+        dest: /var/www/pro.stage.webinsights.info/current
+        state: link
+        force: yes
+
+    - name: Create index.html in version directory
+      copy:
+        dest: /var/www/pro.stage.webinsights.info/0.0.0/index.html
+        content: |
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Hello</title>
+          </head>
+          <body>
+            <h1>Hello WebInsights</h1>
+          </body>
+          </html>
+        owner: www-data
+        group: www-data
+        mode: '0644'
+
+    - name: Copy Apache vHost file
+      copy:
+        src: files/pro.stage.webinsights.info.conf
+        dest: /etc/apache2/sites-available/pro.stage.webinsights.info.conf
+        mode: '0644'
+      notify: Reload Apache
+
+    - name: Enable vHost pro.stage.webinsights.info
+      command: a2ensite pro.stage.webinsights.info.conf
+      notify: Reload Apache
+
+    - name: Disable default site (optional)
+      command: a2dissite 000-default.conf
+      notify: Reload Apache
+
+    - name: Ensure Apache is running and enabled
+      service:
+        name: apache2
+        state: started
+        enabled: yes
+
+    - name: Obtain SSL certificate with Certbot
+      command: >
+        certbot --apache --non-interactive --agree-tos
+        --redirect
+        -m your@email.com
+        -d pro.stage.webinsights.info
+      args:
+        creates: /etc/letsencrypt/live/pro.stage.webinsights.info/fullchain.pem
+
+  handlers:
+    - name: Reload Apache
+      service:
+        name: apache2
+        state: reloaded
